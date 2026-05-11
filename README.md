@@ -192,7 +192,7 @@ Contributions are welcome! Feel free to open issues or submit PRs.
 
 ## 📄 License
 
-[MIT](LICENSE) — **[Vandre Sales](https://github.com/vandre-sales)** 2026
+[MIT](LICENSE) — **[Vandre Sales](https://github.com/vandre-sales/vandre-sales/blob/main/README.md)** 2026
 
 ---
 
