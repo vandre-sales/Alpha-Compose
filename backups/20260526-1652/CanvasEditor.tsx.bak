@@ -108,8 +108,8 @@ export default function CanvasEditor({ aspectRatio, images, onCanvasReady }: Can
             const fabricImg = await fabric.FabricImage.fromURL(img.url, { crossOrigin: 'anonymous' });
             
             // Set custom property to identify it during export
-            fabricImg._imageId = img.id;
-            fabricImg._imageRole = img.role as 'background' | 'subject';
+            (fabricImg as any)._imageId = img.id;
+            (fabricImg as any)._imageRole = img.role;
 
             if (img.role === 'background') {
               const scale = Math.max(canvas.width / img.width, canvas.height / img.height);
@@ -146,48 +146,14 @@ export default function CanvasEditor({ aspectRatio, images, onCanvasReady }: Can
             console.error('Failed to load image into fabric', err);
           }
         } else {
-          // Update visibility
+          // Update visibility and role properties
           obj.set('visible', img.visible);
+          (obj as any)._imageRole = img.role;
 
-          // Detect role change and re-apply defaults
-          const previousRole = obj._imageRole;
-          const newRole = img.role as 'background' | 'subject';
-          obj._imageRole = newRole;
-
-          if (previousRole !== newRole) {
-            // Role changed — re-apply scale and positioning for new role
-            if (newRole === 'background') {
-              const scale = Math.max(canvas.width / img.width, canvas.height / img.height);
-              obj.set({
-                scaleX: scale,
-                scaleY: scale,
-                left: canvas.width / 2,
-                top: canvas.height / 2,
-                originX: 'center',
-                originY: 'center',
-                lockRotation: true,
-              });
-              canvas.sendObjectToBack(obj);
-            } else {
-              const scale = Math.min(canvas.width / img.width, canvas.height / img.height) * 0.5;
-              obj.set({
-                scaleX: scale,
-                scaleY: scale,
-                left: canvas.width / 2,
-                top: canvas.height / 2,
-                originX: 'center',
-                originY: 'center',
-                lockRotation: false,
-              });
-              canvas.bringObjectToFront(obj);
-            }
+          if (img.role === 'background') {
+            canvas.sendObjectToBack(obj);
           } else {
-            // Same role — just adjust Z-order
-            if (newRole === 'background') {
-              canvas.sendObjectToBack(obj);
-            } else {
-              canvas.bringObjectToFront(obj);
-            }
+            canvas.bringObjectToFront(obj);
           }
         }
       }
@@ -205,7 +171,7 @@ export default function CanvasEditor({ aspectRatio, images, onCanvasReady }: Can
       </div>
       
       {/* Precision indicators */}
-      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-1.5 opacity-20 pointer-events-none">
+      <div className="absolute bottom-8 left-1/2 -track-x-1/2 flex gap-1.5 opacity-20 pointer-events-none">
         <div className="w-1 h-1 bg-white" />
         <div className="w-1 h-1 bg-white" />
         <div className="w-1 h-1 bg-white" />

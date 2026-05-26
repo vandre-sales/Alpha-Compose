@@ -4,13 +4,20 @@
  */
 
 import React, { useState, useCallback, useRef } from 'react';
-import {
-  Trash2,
-  Image as ImageIcon,
+import { 
+  Upload, 
+  Trash2, 
+  Image as ImageIcon, 
+  Maximize, 
+  Download, 
   Layers,
+  Settings2,
+  ZoomIn,
+  ZoomOut,
+  Palette
 } from 'lucide-react';
-import { motion } from 'motion/react';
-import { cn, sanitizeFilename } from './lib/utils';
+import { motion, AnimatePresence } from 'motion/react';
+import { cn } from './lib/utils';
 import { 
   UploadedImage, 
   AspectRatioType, 
@@ -120,31 +127,8 @@ export default function App() {
       
       // multiplier = TargetWidth / CanvasWidth
       const multiplier = targetWidth / canvas.width;
-
-      // Safety check: most browsers cap canvas at 16384px per side
-      const MAX_CANVAS_SIDE = 16384;
-      const outputWidth = canvas.width * multiplier;
-      const outputHeight = canvas.height * multiplier;
-      
-      if (outputWidth > MAX_CANVAS_SIDE || outputHeight > MAX_CANVAS_SIDE) {
-        alert(
-          `Export resolution too high for this browser (${Math.round(outputWidth)}×${Math.round(outputHeight)}px exceeds ${MAX_CANVAS_SIDE}px limit). ` +
-          `Please select a lower quality or a different aspect ratio.`
-        );
-        return;
-      }
       
       const allObjects = canvas.getObjects();
-
-      // Helper: convert base64 string to Uint8Array (saves ~33% vs storing raw base64)
-      const base64ToUint8Array = (base64: string): Uint8Array => {
-        const binaryString = atob(base64);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let j = 0; j < binaryString.length; j++) {
-          bytes[j] = binaryString.charCodeAt(j);
-        }
-        return bytes;
-      };
 
       // Algorithm: Toggle visibility on objects to render one by one
       for (let i = 0; i < bgImages.length; i++) {
@@ -153,8 +137,8 @@ export default function App() {
 
         // Prepare canvas for this specific frame
         allObjects.forEach(obj => {
-          const imageId = obj._imageId;
-          const imageRole = obj._imageRole;
+          const imageId = (obj as any)._imageId;
+          const imageRole = (obj as any)._imageRole;
 
           if (imageRole === 'background') {
             // Only show the specific background of this turn
@@ -168,34 +152,17 @@ export default function App() {
 
         canvas.renderAll();
 
-        // Render at target resolution and extract PNG data
-        try {
-          const dataUrl = canvas.toDataURL({
-            format: 'png',
-            multiplier: multiplier,
-          });
-          
-          const base64Data = dataUrl.split(',')[1];
-          if (!base64Data) {
-            throw new Error('toDataURL returned empty — possible OOM or canvas limit exceeded');
-          }
-          
-          const safeName = sanitizeFilename(currentBg.name);
-          // Store as binary Uint8Array instead of base64 string (saves ~33% RAM)
-          zip.file(`compose_${i + 1}_${safeName}_${res}.png`, base64ToUint8Array(base64Data));
-        } catch (renderErr) {
-          console.error(`[Export] Failed to render frame ${i + 1}:`, renderErr);
-          // Skip this frame but continue with the rest
-          continue;
-        }
+        const dataUrl = canvas.toDataURL({
+          format: 'png',
+          multiplier: multiplier,
+        });
         
-        // Yield to main thread so UI can update the progress counter
-        await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
-      }
-
-      if (Object.keys(zip.files).length === 0) {
-        alert('Export failed: no frames could be rendered. Try a lower resolution.');
-        return;
+        const base64Data = dataUrl.split(',')[1];
+        const safeName = currentBg.name.replace(/\.[^/.]+$/, "");
+        zip.file(`compose_${i + 1}_${safeName}_${res}.png`, base64Data, { base64: true });
+        
+        // Brief timeout to let the UI update the counter
+        await new Promise(r => setTimeout(r, 50));
       }
 
       const content = await zip.generateAsync({ type: 'blob' });
@@ -204,20 +171,17 @@ export default function App() {
       link.download = `alpha_compose_${res}_pack.zip`;
       link.click();
       
-      // Release blob memory
-      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-      
       // Cleanup: revert visibility to the state in the "images" array
       allObjects.forEach(obj => {
-        const imageId = obj._imageId;
+        const imageId = (obj as any)._imageId;
         const imgState = images.find(img => img.id === imageId);
         if (imgState) obj.set('visible', imgState.visible);
       });
       canvas.renderAll();
 
     } catch (err) {
-      console.error('[Export] Unexpected error:', err);
-      alert('Export failed. Check console for details.');
+      console.error(err);
+      alert('Export failed.');
     } finally {
       setIsExporting(false);
       setExportProgress({ current: 0, total: 0 });
