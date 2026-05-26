@@ -17,8 +17,8 @@ export function useImageLibrary(notify: NotifyFn) {
       files = Array.from((e.target as HTMLInputElement).files || []);
     }
 
-    if (images.length + files.length > 20) {
-      notify('Maximum 20 images allowed.', 'warning');
+    if (images.length + files.length > 25) {
+      notify('Maximum 25 images allowed.', 'warning');
       return;
     }
 

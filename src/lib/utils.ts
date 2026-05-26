@@ -17,3 +17,23 @@ export function sanitizeFilename(name: string): string {
     .replace(/^_|_$/g, '')                 // trim leading/trailing underscores
     || 'untitled';
 }
+
+/**
+ * Formats the filename for a composed frame in the ZIP.
+ * Pattern: compose_S{subIdx}_B{bgIdx}_{subName}__{bgName}_{res}.png
+ * When there's no subject (legacy mode): compose_B{bgIdx}_{bgName}_{res}.png
+ */
+export function formatFrameName(
+  subIdx: number | null,
+  bgIdx: number,
+  subName: string | null,
+  bgName: string,
+  res: string
+): string {
+  const safeBg = sanitizeFilename(bgName);
+  if (subIdx === null || subName === null) {
+    return `compose_B${bgIdx}_${safeBg}_${res}.png`;
+  }
+  const safeSub = sanitizeFilename(subName);
+  return `compose_S${subIdx}_B${bgIdx}_${safeSub}__${safeBg}_${res}.png`;
+}

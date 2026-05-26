@@ -1,19 +1,25 @@
 import { useState, useCallback, useRef } from 'react';
 import * as fabric from 'fabric';
 import { UploadedImage, ExportResolution, AspectRatioType, RESOLUTIONS, ASPECT_RATIOS } from '../types';
-import { sanitizeFilename } from '../lib/utils';
+import { formatFrameName } from '../lib/utils';
 import type { ZipWorkerMessage, ZipWorkerGenerateMessage, ZipWorkerResult, ZipWorkerError } from '../workers/zipWorker';
 
-interface ExportProgress {
-  current: number;
-  total: number;
+export interface ExportProgress {
+  current: number;      // frame index (1-based)
+  total: number;        // total frames = N × max(A, 1)
+  currentSub: number;   // current subject index (1-based, or 1 if no subs)
+  totalSubs: number;    // total visible subs (or 1 if legacy mode)
+  currentBg: number;    // current background index (1-based)
+  totalBgs: number;     // total visible backgrounds
 }
 
 type NotifyFn = (message: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 
 export function useExporter(notify: NotifyFn) {
   const [isExporting, setIsExporting] = useState(false);
-  const [exportProgress, setExportProgress] = useState<ExportProgress>({ current: 0, total: 0 });
+  const [exportProgress, setExportProgress] = useState<ExportProgress>({
+    current: 0, total: 0, currentSub: 0, totalSubs: 0, currentBg: 0, totalBgs: 0,
+  });
   const canvasRef = useRef<fabric.Canvas | null>(null);
   const cancelledRef = useRef(false);
 
@@ -32,17 +38,35 @@ export function useExporter(notify: NotifyFn) {
   ) => {
     if (!canvasRef.current || images.length === 0) return;
 
-    const bgImages = images.filter(img => img.role === 'background');
-    const subImages = images.filter(img => img.role === 'subject');
+    // Filter ONLY visible images in each layer
+    const visibleBgs = images.filter(img => img.role === 'background' && img.visible);
+    const visibleSubs = images.filter(img => img.role === 'subject' && img.visible);
 
-    if (bgImages.length === 0) {
-      notify('Please select at least one image as a background.', 'warning');
+    // Validation: need at least 1 visible background
+    if (visibleBgs.length === 0) {
+      notify('Select at least one visible background.', 'warning');
       return;
+    }
+
+    const N = visibleBgs.length;
+    const A = visibleSubs.length;
+    const totalFrames = N * Math.max(A, 1);
+
+    // Pre-calculation alert for large packs
+    if (totalFrames > 80 && exportRes === '4K') {
+      const confirmed = window.confirm(
+        `Generate ${totalFrames} frames at 4K? This may take several minutes and produce a large ZIP file.`
+      );
+      if (!confirmed) return;
+    } else if (totalFrames > 80) {
+      notify(`Large pack: generating ${totalFrames} frames...`, 'info');
+    } else if (totalFrames > 30) {
+      notify(`Generating ${totalFrames} frames...`, 'info');
     }
 
     cancelledRef.current = false;
     setIsExporting(true);
-    setExportProgress({ current: 0, total: bgImages.length });
+    setExportProgress({ current: 0, total: totalFrames, currentSub: 0, totalSubs: Math.max(A, 1), currentBg: 0, totalBgs: N });
 
     // Create Web Worker for ZIP generation
     const worker = new Worker(
@@ -88,64 +112,93 @@ export function useExporter(notify: NotifyFn) {
       };
 
       let framesAdded = 0;
+      let frameIndex = 0;
 
-      // Render frames on main thread, send data to worker
-      for (let i = 0; i < bgImages.length; i++) {
-        if (cancelledRef.current) {
-          notify('Export cancelled.', 'warning');
-          break;
-        }
+      // ═══════════════════════════════════════════════════════════════
+      // CARTESIAN PRODUCT: SUB-outer × BG-inner
+      // INVARIANT: each frame contains exactly 1 BG + (0 or 1) SUB
+      // SUBs/BGs in "hide" are silently skipped (not in visibleBgs/visibleSubs)
+      // ═══════════════════════════════════════════════════════════════
 
-        setExportProgress({ current: i + 1, total: bgImages.length });
-        const currentBg = bgImages[i];
+      const subIterations = Math.max(A, 1); // legacy compat: if A=0, single pass with no sub
 
-        // Prepare canvas for this specific frame
-        allObjects.forEach(obj => {
-          const imageId = obj._imageId;
-          const imageRole = obj._imageRole;
+      for (let s = 0; s < subIterations; s++) {
+        const currentSub = A > 0 ? visibleSubs[s] : null;
 
-          if (imageRole === 'background') {
-            obj.set('visible', imageId === currentBg.id);
-          } else if (imageRole === 'subject') {
-            const subData = subImages.find(s => s.id === imageId);
-            obj.set('visible', subData ? subData.visible : false);
+        for (let b = 0; b < N; b++) {
+          // Check cancellation
+          if (cancelledRef.current) {
+            notify('Export cancelled.', 'warning');
+            break;
           }
-        });
 
-        canvas.renderAll();
+          frameIndex++;
+          const currentBg = visibleBgs[b];
 
-        try {
-          const dataUrl = canvas.toDataURL({
-            format: 'png',
-            multiplier: multiplier,
+          setExportProgress({
+            current: frameIndex,
+            total: totalFrames,
+            currentSub: s + 1,
+            totalSubs: subIterations,
+            currentBg: b + 1,
+            totalBgs: N,
           });
 
-          const base64Data = dataUrl.split(',')[1];
-          if (!base64Data) {
-            throw new Error('toDataURL returned empty — possible OOM');
+          // Toggle visibility: ONLY currentBg visible + ONLY currentSub visible
+          // This guarantees the invariant: never 2+ SUBs in the same frame
+          allObjects.forEach(obj => {
+            if (obj._imageRole === 'background') {
+              obj.set('visible', obj._imageId === currentBg.id);
+            } else if (obj._imageRole === 'subject') {
+              obj.set('visible', currentSub !== null && obj._imageId === currentSub.id);
+            }
+          });
+
+          canvas.renderAll();
+
+          try {
+            const dataUrl = canvas.toDataURL({
+              format: 'png',
+              multiplier: multiplier,
+            });
+
+            const base64Data = dataUrl.split(',')[1];
+            if (!base64Data) {
+              throw new Error('toDataURL returned empty — possible OOM');
+            }
+
+            const filename = formatFrameName(
+              currentSub ? s + 1 : null,
+              b + 1,
+              currentSub?.name ?? null,
+              currentBg.name,
+              res
+            );
+
+            const frameData = base64ToUint8Array(base64Data);
+
+            // Send frame to worker for ZIP packaging
+            const msg: ZipWorkerMessage = {
+              type: 'add-frame',
+              filename,
+              data: frameData,
+            };
+            worker.postMessage(msg, [frameData.buffer]);
+            framesAdded++;
+          } catch (renderErr) {
+            console.error(`[Export] Failed to render frame ${frameIndex}:`, renderErr);
+            continue;
           }
 
-          const safeName = sanitizeFilename(currentBg.name);
-          const frameData = base64ToUint8Array(base64Data);
-
-          // Send frame to worker for ZIP packaging
-          const msg: ZipWorkerMessage = {
-            type: 'add-frame',
-            filename: `compose_${i + 1}_${safeName}_${res}.png`,
-            data: frameData,
-          };
-          worker.postMessage(msg, [frameData.buffer]);
-          framesAdded++;
-        } catch (renderErr) {
-          console.error(`[Export] Failed to render frame ${i + 1}:`, renderErr);
-          continue;
+          // Yield to main thread
+          await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
         }
 
-        // Yield to main thread
-        await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+        // Break outer loop too if cancelled
+        if (cancelledRef.current) break;
       }
 
-      // Cleanup: revert visibility
+      // Cleanup: revert visibility to user state
       allObjects.forEach(obj => {
         const imageId = obj._imageId;
         const imgState = images.find(img => img.id === imageId);
@@ -192,7 +245,7 @@ export function useExporter(notify: NotifyFn) {
     } finally {
       worker.terminate();
       setIsExporting(false);
-      setExportProgress({ current: 0, total: 0 });
+      setExportProgress({ current: 0, total: 0, currentSub: 0, totalSubs: 0, currentBg: 0, totalBgs: 0 });
     }
   }, [notify]);
 
