@@ -3,307 +3,34 @@
  * SPDX-License-Identifier: MIT
  */
 
-import React, { useState, useCallback, useRef } from 'react';
+import { cn } from './lib/utils';
 import {
-  Trash2,
-  Image as ImageIcon,
-  Layers,
-} from 'lucide-react';
-import { motion } from 'motion/react';
-import { cn, sanitizeFilename } from './lib/utils';
-import { 
-  UploadedImage, 
-  AspectRatioType, 
-  ASPECT_RATIOS, 
-  RESOLUTIONS, 
-  ExportResolution 
+  AspectRatioType,
+  ASPECT_RATIOS,
+  RESOLUTIONS,
+  ExportResolution,
 } from './types';
-import * as fabric from 'fabric';
-import JSZip from 'jszip';
+import { useState } from 'react';
+
+// Hooks
+import { useImageLibrary } from './hooks/useImageLibrary';
+import { useExporter } from './hooks/useExporter';
+import { useToast, ToastContainer } from './components/Toast';
 
 // Components
 import CanvasEditor from './components/CanvasEditor';
+import Section from './components/Section';
 
 export default function App() {
-  const [images, setImages] = useState<UploadedImage[]>([]);
+  const { toasts, addToast, removeToast } = useToast();
+  const { images, handleFileUpload, removeImage, toggleVisibility, moveImage } = useImageLibrary(addToast);
+  const { isExporting, exportProgress, setCanvas, downloadAll, cancelExport } = useExporter(addToast);
+
   const [aspectRatio, setAspectRatio] = useState<AspectRatioType>('1:1');
   const [exportRes, setExportRes] = useState<ExportResolution>('1K');
-  const [isExporting, setIsExporting] = useState(false);
-  const [exportProgress, setExportProgress] = useState({ current: 0, total: 0 });
-  
-  const canvasRef = useRef<fabric.Canvas | null>(null);
 
-  const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement> | React.DragEvent, forcedRole?: 'background' | 'subject') => {
-    let files: File[] = [];
-    if ('dataTransfer' in e) {
-      files = Array.from(e.dataTransfer.files);
-    } else {
-      files = Array.from((e.target as HTMLInputElement).files || []);
-    }
-
-    if (images.length + files.length > 20) {
-      alert('Maximum 20 images allowed.');
-      return;
-    }
-
-    const newImages = await Promise.all(
-      files.map(async (file: File) => {
-        return new Promise<UploadedImage>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            const url = event.target?.result as string;
-            const img = new Image();
-            img.onload = () => {
-              resolve({
-                id: `img-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-                url,
-                name: file.name,
-                width: img.width,
-                height: img.height,
-                aspectRatio: img.width / img.height,
-                role: forcedRole || 'none',
-                visible: true,
-              });
-            };
-            img.src = url;
-          };
-          reader.readAsDataURL(file);
-        });
-      })
-    );
-
-    setImages((prev) => [...prev, ...newImages]);
-  }, [images]);
-
-  const removeImage = (id: string) => {
-    setImages((prev) => prev.filter((img) => img.id !== id));
-  };
-
-  const toggleVisibility = (id: string) => {
-    setImages(prev => prev.map(img => img.id === id ? { ...img, visible: !img.visible } : img));
-  };
-
-  const moveImage = (id: string) => {
-    setImages(prev => prev.map(img => {
-      if (img.id === id) {
-        return { ...img, role: img.role === 'background' ? 'subject' : 'background' };
-      }
-      return img;
-    }));
-  };
-
-  const downloadAll = async () => {
-    if (!canvasRef.current || images.length === 0) return;
-    
-    const bgImages = images.filter(img => img.role === 'background');
-    const subImages = images.filter(img => img.role === 'subject');
-
-    if (bgImages.length === 0) {
-      alert('Please select at least one image as a background.');
-      return;
-    }
-
-    setIsExporting(true);
-    setExportProgress({ current: 0, total: bgImages.length });
-    
-    try {
-      const zip = new JSZip();
-      const canvas = canvasRef.current;
-      const res = exportRes;
-      const totalPixels = RESOLUTIONS[res];
-      const arValue = ASPECT_RATIOS[aspectRatio];
-      
-      // Calculate target dimensions based on W * H = TotalPixels and W/H = AR
-      // H = sqrt(TotalPixels / AR)
-      const targetHeight = Math.sqrt(totalPixels / arValue);
-      const targetWidth = targetHeight * arValue;
-      
-      // multiplier = TargetWidth / CanvasWidth
-      const multiplier = targetWidth / canvas.width;
-
-      // Safety check: most browsers cap canvas at 16384px per side
-      const MAX_CANVAS_SIDE = 16384;
-      const outputWidth = canvas.width * multiplier;
-      const outputHeight = canvas.height * multiplier;
-      
-      if (outputWidth > MAX_CANVAS_SIDE || outputHeight > MAX_CANVAS_SIDE) {
-        alert(
-          `Export resolution too high for this browser (${Math.round(outputWidth)}×${Math.round(outputHeight)}px exceeds ${MAX_CANVAS_SIDE}px limit). ` +
-          `Please select a lower quality or a different aspect ratio.`
-        );
-        return;
-      }
-      
-      const allObjects = canvas.getObjects();
-
-      // Helper: convert base64 string to Uint8Array (saves ~33% vs storing raw base64)
-      const base64ToUint8Array = (base64: string): Uint8Array => {
-        const binaryString = atob(base64);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let j = 0; j < binaryString.length; j++) {
-          bytes[j] = binaryString.charCodeAt(j);
-        }
-        return bytes;
-      };
-
-      // Algorithm: Toggle visibility on objects to render one by one
-      for (let i = 0; i < bgImages.length; i++) {
-        setExportProgress({ current: i + 1, total: bgImages.length });
-        const currentBg = bgImages[i];
-
-        // Prepare canvas for this specific frame
-        allObjects.forEach(obj => {
-          const imageId = obj._imageId;
-          const imageRole = obj._imageRole;
-
-          if (imageRole === 'background') {
-            // Only show the specific background of this turn
-            obj.set('visible', imageId === currentBg.id);
-          } else if (imageRole === 'subject') {
-            // Follow the "Show" state selected by user for subjects
-            const subData = subImages.find(s => s.id === imageId);
-            obj.set('visible', subData ? subData.visible : false);
-          }
-        });
-
-        canvas.renderAll();
-
-        // Render at target resolution and extract PNG data
-        try {
-          const dataUrl = canvas.toDataURL({
-            format: 'png',
-            multiplier: multiplier,
-          });
-          
-          const base64Data = dataUrl.split(',')[1];
-          if (!base64Data) {
-            throw new Error('toDataURL returned empty — possible OOM or canvas limit exceeded');
-          }
-          
-          const safeName = sanitizeFilename(currentBg.name);
-          // Store as binary Uint8Array instead of base64 string (saves ~33% RAM)
-          zip.file(`compose_${i + 1}_${safeName}_${res}.png`, base64ToUint8Array(base64Data));
-        } catch (renderErr) {
-          console.error(`[Export] Failed to render frame ${i + 1}:`, renderErr);
-          // Skip this frame but continue with the rest
-          continue;
-        }
-        
-        // Yield to main thread so UI can update the progress counter
-        await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
-      }
-
-      if (Object.keys(zip.files).length === 0) {
-        alert('Export failed: no frames could be rendered. Try a lower resolution.');
-        return;
-      }
-
-      const content = await zip.generateAsync({ type: 'blob' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(content);
-      link.download = `alpha_compose_${res}_pack.zip`;
-      link.click();
-      
-      // Release blob memory
-      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-      
-      // Cleanup: revert visibility to the state in the "images" array
-      allObjects.forEach(obj => {
-        const imageId = obj._imageId;
-        const imgState = images.find(img => img.id === imageId);
-        if (imgState) obj.set('visible', imgState.visible);
-      });
-      canvas.renderAll();
-
-    } catch (err) {
-      console.error('[Export] Unexpected error:', err);
-      alert('Export failed. Check console for details.');
-    } finally {
-      setIsExporting(false);
-      setExportProgress({ current: 0, total: 0 });
-    }
-  };
-
-  const Section = ({ title, role, items, color }: { title: string, role: 'background' | 'subject', items: UploadedImage[], color: string }) => {
-    const onDragOver = (e: React.DragEvent) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
-    };
-
-    const onDrop = (e: React.DragEvent) => {
-      e.preventDefault();
-      handleFileUpload(e, role);
-    };
-
-    return (
-      <div 
-        onDragOver={onDragOver}
-        onDrop={onDrop}
-        className="flex-1 flex flex-col min-h-0 bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden"
-      >
-        <div className="px-4 py-3 border-b border-white/5 flex items-center justify-between bg-white/[0.02]">
-          <h2 className={cn("text-[10px] font-bold uppercase tracking-[0.2em]", color)}>{title}</h2>
-          <span className="text-[10px] text-white/20 font-mono">{items.length}</span>
-        </div>
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
-          {items.map(img => (
-            <motion.div
-              key={img.id}
-              layout
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className={cn(
-                "group relative h-16 rounded-lg bg-black/40 border border-white/5 overflow-hidden flex transition-all",
-                !img.visible && "opacity-40 grayscale"
-              )}
-            >
-              <div className="w-16 h-full flex-shrink-0 bg-black/60 relative">
-                <img src={img.url} className="w-full h-full object-cover" alt="" />
-                {!img.visible && (
-                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                    <div className="w-1 h-1 bg-white/20 rounded-full" />
-                  </div>
-                )}
-              </div>
-              <div className="flex-1 min-w-0 p-2 flex flex-col justify-center">
-                <p className="text-[10px] font-medium truncate opacity-60 mb-1.5">{img.name}</p>
-                <div className="flex items-center gap-1">
-                  <button 
-                    onClick={() => toggleVisibility(img.id)}
-                    title={img.visible ? 'Hide' : 'Show'}
-                    className="p-1 px-2 rounded-sm bg-white/5 hover:bg-white/10 text-white/40 hover:text-white transition-all text-[8px] uppercase font-bold flex items-center gap-1"
-                  >
-                    {img.visible ? <ImageIcon size={10} /> : <div className="w-2.5 h-2.5 border border-dashed border-white/20 rounded-sm" />}
-                    {img.visible ? 'Hide' : 'Show'}
-                  </button>
-                  <button 
-                    onClick={() => moveImage(img.id)}
-                    title="Move to other section"
-                    className="p-1 px-2 rounded-sm bg-white/5 hover:bg-white/10 text-white/40 hover:text-white transition-all text-[8px] uppercase font-bold flex items-center gap-1"
-                  >
-                    <Layers size={10} />
-                    Move
-                  </button>
-                  <button 
-                    onClick={() => removeImage(img.id)}
-                    title="Delete"
-                    className="ml-auto p-1.5 text-white/20 hover:text-red-400 hover:bg-red-500/10 rounded-sm transition-all"
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          ))}
-          <label className="block w-full cursor-pointer">
-            <div className="w-full py-4 border border-dashed border-white/10 rounded-lg text-[9px] uppercase font-bold tracking-widest text-white/20 hover:text-white/40 hover:border-white/20 transition-all text-center">
-              Drop or Click +
-            </div>
-            <input type="file" className="hidden" multiple onChange={(e) => handleFileUpload(e, role)} accept="image/*" />
-          </label>
-        </div>
-      </div>
-    );
+  const handleGenerate = () => {
+    downloadAll(images, aspectRatio, exportRes);
   };
 
   return (
@@ -314,19 +41,27 @@ export default function App() {
           <h1 className="text-xs font-black uppercase tracking-[0.3em] text-blue-500 mb-1">Alpha Compose</h1>
           <p className="text-[9px] text-slate-500 font-mono tracking-tighter italic">Precision Image Orchestrator</p>
         </div>
-        
-        <Section 
-          title="Subjects (SUB)" 
-          role="subject" 
-          items={images.filter(img => img.role === 'subject')} 
+
+        <Section
+          title="Subjects (SUB)"
+          role="subject"
+          items={images.filter(img => img.role === 'subject')}
           color="text-purple-400"
+          onUpload={handleFileUpload}
+          onToggleVisibility={toggleVisibility}
+          onMove={moveImage}
+          onRemove={removeImage}
         />
-        
-        <Section 
-          title="Backgrounds (BG)" 
-          role="background" 
-          items={images.filter(img => img.role === 'background')} 
+
+        <Section
+          title="Backgrounds (BG)"
+          role="background"
+          items={images.filter(img => img.role === 'background')}
           color="text-blue-400"
+          onUpload={handleFileUpload}
+          onToggleVisibility={toggleVisibility}
+          onMove={moveImage}
+          onRemove={removeImage}
         />
       </aside>
 
@@ -336,13 +71,14 @@ export default function App() {
           <div className="flex items-center gap-8">
             <div className="flex flex-col">
               <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-1">Ratio</span>
-              <div className="flex bg-white/5 p-1 rounded border border-white/10">
+              <div className="flex bg-white/5 p-1 rounded border border-white/10" role="group" aria-label="Aspect ratio selection">
                 {(Object.keys(ASPECT_RATIOS) as AspectRatioType[]).map((ratio) => (
                   <button
                     key={ratio}
                     onClick={() => setAspectRatio(ratio)}
+                    aria-pressed={aspectRatio === ratio}
                     className={cn(
-                      "px-3 py-1 rounded text-[10px] font-bold transition-all",
+                      "px-3 py-1 rounded text-[10px] font-bold transition-all focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none",
                       aspectRatio === ratio ? "bg-blue-600 text-white shadow-lg" : "text-white/40 hover:text-white"
                     )}
                   >
@@ -352,26 +88,31 @@ export default function App() {
               </div>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-4">
-             {isExporting && (
-                <div className="flex items-center gap-3 px-4 py-2 bg-blue-600/10 border border-blue-500/20 rounded-full animate-pulse">
-                  <div className="w-2 h-2 rounded-full bg-blue-500" />
-                  <span className="text-[10px] font-bold text-blue-400 font-mono uppercase tracking-widest">
-                    Generating: {exportProgress.current} / {exportProgress.total}
-                  </span>
-                </div>
-              )}
+            {isExporting && (
+              <div className="flex items-center gap-3 px-4 py-2 bg-blue-600/10 border border-blue-500/20 rounded-full animate-pulse" role="status" aria-live="polite">
+                <div className="w-2 h-2 rounded-full bg-blue-500" />
+                <span className="text-[10px] font-bold text-blue-400 font-mono uppercase tracking-widest">
+                  Generating: {exportProgress.current} / {exportProgress.total}
+                </span>
+                <button
+                  onClick={cancelExport}
+                  aria-label="Cancel export"
+                  className="ml-2 px-2 py-0.5 rounded text-[9px] font-bold uppercase bg-red-500/20 text-red-400 hover:bg-red-500/40 transition-all focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:outline-none"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
           </div>
         </header>
 
         <div className="flex-1 flex items-center justify-center p-12 overflow-hidden">
-          <CanvasEditor 
-            aspectRatio={ASPECT_RATIOS[aspectRatio]} 
-            images={images} 
-            onCanvasReady={(c) => {
-              canvasRef.current = c;
-            }}
+          <CanvasEditor
+            aspectRatio={ASPECT_RATIOS[aspectRatio]}
+            images={images}
+            onCanvasReady={setCanvas}
           />
         </div>
 
@@ -395,18 +136,19 @@ export default function App() {
                 <br/>4. Generate pack (Iterates all BGs).
               </p>
             </div>
-            
+
             <div className="p-4 rounded-xl bg-blue-500/5 border border-blue-500/20 space-y-4">
-               <h2 className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-400">Quality</h2>
-               <div className="grid grid-cols-3 gap-2">
+              <h2 className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-400">Quality</h2>
+              <div className="grid grid-cols-3 gap-2" role="group" aria-label="Export quality selection">
                 {(Object.keys(RESOLUTIONS) as ExportResolution[]).map((res) => (
                   <button
                     key={res}
                     onClick={() => setExportRes(res)}
+                    aria-pressed={exportRes === res}
                     className={cn(
-                      "py-2 rounded text-[10px] font-bold border transition-all",
-                      exportRes === res 
-                        ? "bg-blue-600 border-blue-400 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]" 
+                      "py-2 rounded text-[10px] font-bold border transition-all focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none",
+                      exportRes === res
+                        ? "bg-blue-600 border-blue-400 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]"
                         : "bg-white/5 border-white/10 text-slate-400 hover:text-white"
                     )}
                   >
@@ -421,9 +163,10 @@ export default function App() {
         <section className="flex-1 flex flex-col justify-end">
           <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-4">
             <button
-              onClick={downloadAll}
+              onClick={handleGenerate}
               disabled={isExporting || images.length === 0}
-              className="w-full py-4 bg-white text-black font-black text-xs uppercase tracking-widest rounded-lg hover:bg-blue-500 hover:text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_20px_40px_rgba(255,255,255,0.05)]"
+              aria-label="Generate ZIP pack with composed images"
+              className="w-full py-4 bg-white text-black font-black text-xs uppercase tracking-widest rounded-lg hover:bg-blue-500 hover:text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_20px_40px_rgba(255,255,255,0.05)] focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
             >
               {isExporting ? <span className="animate-pulse">Processing...</span> : 'Generate Pack'}
             </button>
@@ -433,6 +176,9 @@ export default function App() {
           </div>
         </section>
       </aside>
+
+      {/* Toast notifications */}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   );
 }
