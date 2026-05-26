@@ -1,14 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as fabric from 'fabric';
 import { UploadedImage } from '../types';
+import { applyGridScaleToSubject, unlockSubject, computeGridSliceSize } from '../lib/utils';
 
 interface CanvasEditorProps {
   aspectRatio: number;
   images: UploadedImage[];
+  gridMode: boolean;
   onCanvasReady: (canvas: fabric.Canvas) => void;
 }
 
-export default function CanvasEditor({ aspectRatio, images, onCanvasReady }: CanvasEditorProps) {
+export default function CanvasEditor({ aspectRatio, images, gridMode, onCanvasReady }: CanvasEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasElementRef = useRef<HTMLCanvasElement>(null);
   const fabricCanvasRef = useRef<fabric.Canvas | null>(null);
@@ -197,10 +199,70 @@ export default function CanvasEditor({ aspectRatio, images, onCanvasReady }: Can
     syncImages();
   }, [images]);
 
+  // Grid mode effect: apply/remove discrete scale on subjects
+  useEffect(() => {
+    const canvas = fabricCanvasRef.current;
+    if (!canvas) return;
+
+    images.filter(i => i.role === 'subject').forEach(img => {
+      const obj = objectsRef.current.get(img.id);
+      if (!obj) return;
+
+      if (gridMode) {
+        const scale = img.gridScale ?? 10;
+        applyGridScaleToSubject(obj, img.width, img.height, scale, canvas.width, canvas.height);
+      } else {
+        unlockSubject(obj);
+      }
+    });
+
+    canvas.requestRenderAll();
+  }, [gridMode, images]);
+
+  // Compute slice size for the SVG overlay
+  const canvasEl = fabricCanvasRef.current;
+  const sliceSize = canvasEl ? computeGridSliceSize(canvasEl.width, canvasEl.height) : 0;
+  const canvasW = canvasEl?.width ?? 0;
+  const canvasH = canvasEl?.height ?? 0;
+
   return (
     <div ref={containerRef} className="w-full h-full flex items-center justify-center relative">
       <div className="shadow-[0_0_100px_rgba(0,0,0,0.6)] border border-white/20 overflow-hidden bg-[#000] relative group">
         <canvas ref={canvasElementRef} />
+        {/* Grid overlay — SVG outside Fabric canvas so it doesn't appear in exports */}
+        {gridMode && sliceSize > 0 && (
+          <svg
+            className="absolute inset-0 pointer-events-none"
+            width={canvasW}
+            height={canvasH}
+            style={{ opacity: 0.1 }}
+          >
+            {/* Vertical lines */}
+            {Array.from({ length: Math.floor(canvasW / sliceSize) + 1 }, (_, i) => (
+              <line
+                key={`v-${i}`}
+                x1={i * sliceSize}
+                y1={0}
+                x2={i * sliceSize}
+                y2={canvasH}
+                stroke="white"
+                strokeWidth={1}
+              />
+            ))}
+            {/* Horizontal lines */}
+            {Array.from({ length: Math.floor(canvasH / sliceSize) + 1 }, (_, i) => (
+              <line
+                key={`h-${i}`}
+                x1={0}
+                y1={i * sliceSize}
+                x2={canvasW}
+                y2={i * sliceSize}
+                stroke="white"
+                strokeWidth={1}
+              />
+            ))}
+          </svg>
+        )}
         <div className="absolute inset-0 border border-blue-500/50 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
       </div>
       

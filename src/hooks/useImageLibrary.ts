@@ -68,11 +68,21 @@ export function useImageLibrary(notify: NotifyFn) {
     }));
   }, []);
 
+  const incrementGridScale = useCallback((id: string, delta: 1 | -1) => {
+    setImages(prev => prev.map(img => {
+      if (img.id !== id) return img;
+      const current = img.gridScale ?? 10;
+      const next = Math.max(1, Math.min(20, current + delta));
+      return { ...img, gridScale: next };
+    }));
+  }, []);
+
   return {
     images,
     handleFileUpload,
     removeImage,
     toggleVisibility,
     moveImage,
+    incrementGridScale,
   };
 }

@@ -9,6 +9,7 @@ export interface UploadedImage {
   role: ImageRole;
   aspectRatio: number;
   visible: boolean;
+  gridScale?: number;  // 1..20, discrete scale in grid mode
 }
 
 export type AspectRatioType = '1:1' | '3:4' | '9:16' | '4:3' | '16:9';

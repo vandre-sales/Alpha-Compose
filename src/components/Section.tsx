@@ -1,5 +1,5 @@
 import React from 'react';
-import { Trash2, Image as ImageIcon, Layers } from 'lucide-react';
+import { Trash2, Image as ImageIcon, Layers, Plus, Minus } from 'lucide-react';
 import { motion } from 'motion/react';
 import { cn } from '../lib/utils';
 import { UploadedImage } from '../types';
@@ -9,13 +9,15 @@ interface SectionProps {
   role: 'background' | 'subject';
   items: UploadedImage[];
   color: string;
+  gridMode?: boolean;
   onUpload: (e: React.ChangeEvent<HTMLInputElement> | React.DragEvent, role: 'background' | 'subject') => void;
   onToggleVisibility: (id: string) => void;
   onMove: (id: string) => void;
   onRemove: (id: string) => void;
+  onIncrementScale?: (id: string, delta: 1 | -1) => void;
 }
 
-export default function Section({ title, role, items, color, onUpload, onToggleVisibility, onMove, onRemove }: SectionProps) {
+export default function Section({ title, role, items, color, gridMode, onUpload, onToggleVisibility, onMove, onRemove, onIncrementScale }: SectionProps) {
   const onDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'copy';
@@ -84,11 +86,35 @@ export default function Section({ title, role, items, color, onUpload, onToggleV
                   className="ml-auto p-1.5 text-white/20 hover:text-red-400 hover:bg-red-500/10 rounded-sm transition-all focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:outline-none"
                 >
                   <Trash2 size={12} />
-                </button>
+                  </button>
+                </div>
+                {/* Grid scale controls — only for subjects when grid mode is active */}
+                {gridMode && role === 'subject' && onIncrementScale && (
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <button
+                      onClick={() => onIncrementScale(img.id, -1)}
+                      disabled={(img.gridScale ?? 10) <= 1}
+                      aria-label={`Decrease scale of ${img.name}`}
+                      className="p-0.5 rounded-sm bg-white/5 hover:bg-white/10 text-white/40 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                    >
+                      <Minus size={10} />
+                    </button>
+                    <span className="text-[9px] font-mono text-white/50 w-8 text-center">
+                      {img.gridScale ?? 10}/{20}
+                    </span>
+                    <button
+                      onClick={() => onIncrementScale(img.id, 1)}
+                      disabled={(img.gridScale ?? 10) >= 20}
+                      aria-label={`Increase scale of ${img.name}`}
+                      className="p-0.5 rounded-sm bg-white/5 hover:bg-white/10 text-white/40 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                    >
+                      <Plus size={10} />
+                    </button>
+                  </div>
+                )}
               </div>
-            </div>
-          </motion.div>
-        ))}
+            </motion.div>
+          ))}
         <label className="block w-full cursor-pointer">
           <div className="w-full py-4 border border-dashed border-white/10 rounded-lg text-[9px] uppercase font-bold tracking-widest text-white/20 hover:text-white/40 hover:border-white/20 transition-all text-center">
             Drop or Click +

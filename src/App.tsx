@@ -23,11 +23,12 @@ import Section from './components/Section';
 
 export default function App() {
   const { toasts, addToast, removeToast } = useToast();
-  const { images, handleFileUpload, removeImage, toggleVisibility, moveImage } = useImageLibrary(addToast);
+  const { images, handleFileUpload, removeImage, toggleVisibility, moveImage, incrementGridScale } = useImageLibrary(addToast);
   const { isExporting, exportProgress, setCanvas, downloadAll, cancelExport } = useExporter(addToast);
 
   const [aspectRatio, setAspectRatio] = useState<AspectRatioType>('1:1');
   const [exportRes, setExportRes] = useState<ExportResolution>('1K');
+  const [gridMode, setGridMode] = useState(false);
 
   const handleGenerate = () => {
     downloadAll(images, aspectRatio, exportRes);
@@ -47,10 +48,12 @@ export default function App() {
           role="subject"
           items={images.filter(img => img.role === 'subject')}
           color="text-purple-400"
+          gridMode={gridMode}
           onUpload={handleFileUpload}
           onToggleVisibility={toggleVisibility}
           onMove={moveImage}
           onRemove={removeImage}
+          onIncrementScale={incrementGridScale}
         />
 
         <Section
@@ -69,6 +72,21 @@ export default function App() {
       <main className="flex-1 flex flex-col bg-[radial-gradient(circle_at_center,_#111_0%,_#050505_100%)] relative">
         <header className="h-16 flex items-center justify-between px-8 border-b border-white/5">
           <div className="flex items-center gap-8">
+            {/* Grid toggle */}
+            <button
+              onClick={() => setGridMode(!gridMode)}
+              aria-pressed={gridMode}
+              aria-label="Toggle grid mode"
+              className={cn(
+                "px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest border transition-all focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none",
+                gridMode
+                  ? "bg-emerald-600 border-emerald-400 text-white shadow-[0_0_12px_rgba(16,185,129,0.4)]"
+                  : "bg-white/5 border-white/10 text-white/40 hover:text-white"
+              )}
+            >
+              ⊞ Grid {gridMode ? 'ON' : 'OFF'}
+            </button>
+
             <div className="flex flex-col">
               <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-1">Ratio</span>
               <div className="flex bg-white/5 p-1 rounded border border-white/10" role="group" aria-label="Aspect ratio selection">
@@ -111,6 +129,7 @@ export default function App() {
         <div className="flex-1 flex items-center justify-center p-12 overflow-hidden">
           <CanvasEditor
             aspectRatio={ASPECT_RATIOS[aspectRatio]}
+            gridMode={gridMode}
             images={images}
             onCanvasReady={setCanvas}
           />
