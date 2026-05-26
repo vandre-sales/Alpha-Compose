@@ -1,9 +1,9 @@
 {
   "name": "alpha-compose",
   "private": false,
-  "version": "0.1.1",
+  "version": "0.5.0",
   "type": "module",
-  "description": "Professional image composition tool with high-resolution exports up to 4K",
+  "description": "Precision Image Orchestrator — cartesian batch composition (N×A) with PNG/JPG/WEBP exports up to 4K",
   "author": "Vandre Sales",
   "license": "MIT",
   "repository": {
@@ -15,7 +15,13 @@
     "fabric-js",
     "react",
     "canvas",
-    "4k-export"
+    "4k-export",
+    "cartesian-product",
+    "batch-export",
+    "png",
+    "jpg",
+    "webp",
+    "grid-mode"
   ],
   "scripts": {
     "dev": "vite --port=3000",
