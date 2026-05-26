@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import * as fabric from 'fabric';
-import { UploadedImage, ExportResolution, AspectRatioType, RESOLUTIONS, ASPECT_RATIOS } from '../types';
+import { UploadedImage, ExportResolution, AspectRatioType, ExportFormat, RESOLUTIONS, ASPECT_RATIOS, EXPORT_FORMATS } from '../types';
 import { formatFrameName } from '../lib/utils';
 import type { ZipWorkerMessage, ZipWorkerGenerateMessage, ZipWorkerResult, ZipWorkerError } from '../workers/zipWorker';
 
@@ -35,6 +35,7 @@ export function useExporter(notify: NotifyFn) {
     images: UploadedImage[],
     aspectRatio: AspectRatioType,
     exportRes: ExportResolution,
+    exportFormat: ExportFormat = 'PNG',
   ) => {
     if (!canvasRef.current || images.length === 0) return;
 
@@ -157,9 +158,11 @@ export function useExporter(notify: NotifyFn) {
           canvas.renderAll();
 
           try {
+            const formatConfig = EXPORT_FORMATS[exportFormat];
             const dataUrl = canvas.toDataURL({
-              format: 'png',
+              format: formatConfig.extension === 'jpg' ? 'jpeg' : formatConfig.extension as 'png' | 'webp',
               multiplier: multiplier,
+              quality: formatConfig.quality,
             });
 
             const base64Data = dataUrl.split(',')[1];
@@ -172,7 +175,8 @@ export function useExporter(notify: NotifyFn) {
               b + 1,
               currentSub?.name ?? null,
               currentBg.name,
-              res
+              res,
+              formatConfig.extension,
             );
 
             const frameData = base64ToUint8Array(base64Data);
@@ -231,7 +235,7 @@ export function useExporter(notify: NotifyFn) {
       if (result.type === 'done') {
         const link = document.createElement('a');
         link.href = URL.createObjectURL(result.blob);
-        link.download = `alpha_compose_${res}_pack.zip`;
+        link.download = `alpha_compose_${res}_${EXPORT_FORMATS[exportFormat].extension}_pack.zip`;
         link.click();
         setTimeout(() => URL.revokeObjectURL(link.href), 1000);
         notify(`Pack exported! ${result.fileCount} images at ${res}.`, 'success');

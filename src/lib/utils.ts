@@ -28,14 +28,15 @@ export function formatFrameName(
   bgIdx: number,
   subName: string | null,
   bgName: string,
-  res: string
+  res: string,
+  extension: string = 'png'
 ): string {
   const safeBg = sanitizeFilename(bgName);
   if (subIdx === null || subName === null) {
-    return `compose_B${bgIdx}_${safeBg}_${res}.png`;
+    return `compose_B${bgIdx}_${safeBg}_${res}.${extension}`;
   }
   const safeSub = sanitizeFilename(subName);
-  return `compose_S${subIdx}_B${bgIdx}_${safeSub}__${safeBg}_${res}.png`;
+  return `compose_S${subIdx}_B${bgIdx}_${safeSub}__${safeBg}_${res}.${extension}`;
 }
 
 // ═══════════════════════════════════════════════════════════════

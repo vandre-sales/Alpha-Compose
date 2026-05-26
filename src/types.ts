@@ -29,3 +29,18 @@ export const RESOLUTIONS: Record<ExportResolution, number> = {
   '2K': 2048 * 2048,
   '4K': 4096 * 4096,
 };
+
+export type ExportFormat = 'PNG' | 'JPG' | 'WEBP';
+
+export interface ExportFormatConfig {
+  mime: string;
+  extension: string;
+  quality?: number;
+  label: string;
+}
+
+export const EXPORT_FORMATS: Record<ExportFormat, ExportFormatConfig> = {
+  PNG:  { mime: 'image/png',  extension: 'png',  label: 'PNG' },
+  JPG:  { mime: 'image/jpeg', extension: 'jpg',  quality: 0.95, label: 'JPG' },
+  WEBP: { mime: 'image/webp', extension: 'webp', quality: 1.0,  label: 'WEBP' },
+};

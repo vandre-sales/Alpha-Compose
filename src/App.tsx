@@ -9,6 +9,8 @@ import {
   ASPECT_RATIOS,
   RESOLUTIONS,
   ExportResolution,
+  ExportFormat,
+  EXPORT_FORMATS,
 } from './types';
 import { useState } from 'react';
 
@@ -28,10 +30,11 @@ export default function App() {
 
   const [aspectRatio, setAspectRatio] = useState<AspectRatioType>('1:1');
   const [exportRes, setExportRes] = useState<ExportResolution>('1K');
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('PNG');
   const [gridMode, setGridMode] = useState(false);
 
   const handleGenerate = () => {
-    downloadAll(images, aspectRatio, exportRes);
+    downloadAll(images, aspectRatio, exportRes, exportFormat);
   };
 
   return (
@@ -136,7 +139,7 @@ export default function App() {
         </div>
 
         <div className="h-10 border-t border-white/5 flex items-center justify-center gap-6 text-[9px] uppercase tracking-[0.3em] text-white/20">
-          <span>{exportRes} RENDER ENGINE</span>
+          <span>{exportRes} · {exportFormat} RENDER ENGINE</span>
           <div className="w-1 h-1 bg-white/10 rounded-full" />
           <span>REAL-TIME COMPOSITION</span>
         </div>
@@ -172,6 +175,27 @@ export default function App() {
                     )}
                   >
                     {res}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl bg-blue-500/5 border border-blue-500/20 space-y-4">
+              <h2 className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-400">Format</h2>
+              <div className="grid grid-cols-3 gap-2" role="group" aria-label="Export format selection">
+                {(Object.keys(EXPORT_FORMATS) as ExportFormat[]).map((fmt) => (
+                  <button
+                    key={fmt}
+                    onClick={() => setExportFormat(fmt)}
+                    aria-pressed={exportFormat === fmt}
+                    className={cn(
+                      "py-2 rounded text-[10px] font-bold border transition-all focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none",
+                      exportFormat === fmt
+                        ? "bg-blue-600 border-blue-400 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]"
+                        : "bg-white/5 border-white/10 text-slate-400 hover:text-white"
+                    )}
+                  >
+                    {EXPORT_FORMATS[fmt].label}
                   </button>
                 ))}
               </div>
